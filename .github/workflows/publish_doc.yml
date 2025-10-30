@@ -1,0 +1,122 @@
+name: Publish Docs
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: publish-docs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-docs:
+    name: Build Docs and Diagrams
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (generate XML docs)
+        run: |
+          dotnet build src/EmployeeApp/EmployeeApp.csproj -c Release --no-restore \
+            -p:GenerateDocumentationFile=true \
+            -p:DocumentationFile=bin/Release/net8.0/EmployeeApp.xml
+
+      - name: Install PlantUML class diagram generator
+        run: |
+          dotnet tool install --global PlantUmlClassDiagramGenerator
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Generate PlantUML (*.puml) from source
+        run: |
+          mkdir -p docs/diagrams
+          puml-gen src/EmployeeApp -o docs/diagrams
+
+      - name: Render PlantUML to SVG
+        uses: plantuml/plantuml-action@v1
+        with:
+          args: -tsvg
+          files: docs/diagrams/**/*.puml
+          output: docs/diagrams_out
+
+      - name: Ensure DocFX config exists
+        run: |
+          mkdir -p docs
+          if [ ! -f docs/docfx.json ]; then
+            cat > docs/docfx.json << 'EOF'
+            {
+              "metadata": [
+                {
+                  "src": [ { "files": [ "src/EmployeeApp/EmployeeApp.csproj" ] } ],
+                  "dest": "api",
+                  "properties": { "TargetFramework": "net8.0" }
+                }
+              ],
+              "build": {
+                "content": [
+                  { "files": [ "index.md", "diagrams_out/**.svg" ] },
+                  { "files": [ "api/**.yml", "api/index.md" ] }
+                ],
+                "resource": [ { "files": [ "diagrams_out/**" ] } ],
+                "output": "_site"
+              }
+            }
+            EOF
+          fi
+          if [ ! -f docs/index.md ]; then
+            cat > docs/index.md << 'EOF'
+            # Documentación de EmployeeApp
+
+            - API generada con DocFX en `api/`
+            - Diagramas de clases (SVG) generados desde el código en `diagrams_out/`
+
+            ## Diagramas
+            - [Listado de diagramas](diagrams_out/)
+            EOF
+          fi
+
+      - name: Install DocFX (dotnet tool)
+        run: |
+          dotnet tool install --global docfx
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Generate DocFX metadata
+        working-directory: docs
+        run: docfx metadata
+
+      - name: Build DocFX site
+        working-directory: docs
+        run: docfx build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build-docs
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+

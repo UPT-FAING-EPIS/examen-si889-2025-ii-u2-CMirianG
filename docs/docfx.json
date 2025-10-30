@@ -1,0 +1,19 @@
+{
+  "metadata": [
+    {
+      "src": [ { "files": [ "../src/EmployeeApp/EmployeeApp.csproj" ] } ],
+      "dest": "api",
+      "properties": { "TargetFramework": "net8.0" }
+    }
+  ],
+  "build": {
+    "content": [
+      { "files": [ "index.md", "diagrams_out/**.svg" ] },
+      { "files": [ "api/**.yml", "api/index.md" ] }
+    ],
+    "resource": [ { "files": [ "diagrams_out/**" ] } ],
+    "output": "_site"
+  }
+}
+
+
